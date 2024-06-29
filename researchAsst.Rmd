@@ -1,0 +1,181 @@
+---
+title: "Data Assignment"
+author: "Benjamin Reinhard"
+date: "1/21/2024"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+#loading packages & datasets
+library(ggplot2)
+library(dplyr)
+library(zoo)
+library(lubridate)
+library(broom)
+
+
+library(readr)
+corePCE <- read_csv("quarterly core PCE .csv")
+
+pricelevel <- read_csv("pricelevel.csv")
+
+p3 <- read_csv("RA coding_data.csv")
+
+
+```
+
+```{r}
+#part 1
+
+#rename second column
+colnames(corePCE)[2] <- "CorePCEInflation"
+
+#turn date column to digestible form
+corePCE$DATE <- as.Date(corePCE$DATE)
+
+q4_dates <- subset(corePCE, format(DATE, "%m-%d") == "10-01")
+
+#create line to represent target
+
+start <- 2
+end <- 2
+corePCE <- corePCE %>%
+  mutate(line = seq(start, end, length.out = n()))
+
+#graph 
+ggplot(data = corePCE, aes(x = DATE, y = CorePCEInflation)) +
+ geom_line(aes(linetype = 'Core PCE Inflation', color = 'Core PCE Inflation'), linetype = 'solid') +
+              geom_line(aes(x = DATE, y = line, linetype = '2% Target', color = '2% Target'), linetype = 'dashed', size = 1.5)+
+  scale_x_date(breaks = q4_dates$DATE, labels = format(q4_dates$DATE, "%Y Q4")) +
+  scale_y_continuous(breaks = c(0, 0.5, 1, 1.5, 2, 2.5),
+                     labels = c("0.00%", "0.50%", "1.00%", "1.50%", "2.00%", "2.50%"),
+                     limits = c(0, 2.5)) +
+    scale_linetype_manual(name = 'Legend Title',
+                          values = c('solid', 'dashed'),
+                          labels = c('Core PCE Inflation', '2% Target')) +
+      scale_color_manual(values = c('Core PCE Inflation' = 'lightblue', '2% Target' = 'darkblue')) +
+  labs(title = 'Figure 1: Inflation Since 2008 Q4 (Annual Rates)',
+       x = NULL,
+       y = NULL,
+       color = NULL,
+       caption = 'Source: FRED.',
+       linetype = '2% Target') +
+  theme_minimal() +
+  theme(legend.position = 'bottom',
+        plot.caption = element_text(size = 8, hjust = 0, margin = margin(t = 10)),
+        panel.grid.major.x = element_blank())
+
+```
+
+```{r}
+#part 2
+
+#renaming second column
+colnames(pricelevel)[2] <- "PriceLevel"
+pricelevel
+
+#setting date column into digestible form
+pricelevel$DATE <- as.Date(pricelevel$DATE)
+
+q4_datesB <- subset(pricelevel, format(DATE, "%m-%d") == "10-01")
+
+#creating line for 2% yearly increase
+start <- 100 / (1 + 0.02)^(1/4)  
+end <- start * (1 + 0.02)^(max(year(pricelevel$DATE)) - 2009)
+
+#adding this line to the dataset
+pricelevel <- pricelevel %>%
+  mutate(Trend = seq(start, end, length.out = n()))
+
+#graphing
+ggplot(data = pricelevel, aes(x = DATE, y = PriceLevel)) +
+  geom_line(aes(linetype = 'Core PCE Price Index', color = 'Core PCE Price Index'), linetype = 'solid') +
+  geom_line(aes(x = DATE, y = Trend, linetype = '2% Trend', color = '2% Trend'), linetype = 'solid') +
+  scale_x_date(breaks = q4_dates$DATE, labels = format(q4_dates$DATE, "%Y Q4")) +
+  scale_y_continuous(breaks = c(90, 95, 100, 105, 110, 115, 120),
+                     labels = c("90", "95", "100", "105", "110", "115", "120"),
+                     limits = c(90, 120)) +
+  scale_linetype_manual(name = 'Legend Title',
+                        values = c('solid', 'solid'),
+                        labels = c('Core PCE Price Index', '2% Trend')) +
+  scale_color_manual(values = c('Core PCE Price Index' = 'lightblue', '2% Trend' = 'darkblue')) +
+  labs(title = 'Figure 2: Price Level Since 2008 Q4 vs. 2% Trend',
+       x = NULL,
+       y = "Index level, 2009 Q1 = 100",
+       color = NULL,
+       caption = 'Note: Figure shows the core PCE price level against the target core PCE price level, assumed to rise \nat a 2% annual rate since 2008 Q4.Equivalently, the target price level is the level implied by a 2% \ncumulative (annualized) inflation target during the ZLB period. Data are seasonally adjusted.\nSource: FRED.') +
+  theme_minimal() +
+  theme(legend.position = 'bottom',
+        plot.caption = element_text(size = 8, hjust = 0, margin = margin(t = 10)),
+        panel.grid.major.x = element_blank())
+
+
+```
+
+```{r}
+#part 3
+
+#setting date as correct form
+p3
+p3$date <- as.Date(p3$date, format="%m/%d/%Y")
+
+#logging variables to find difference b/w logs
+p3 <- p3 %>%
+  mutate(
+    change_log_oil = c(NA, diff(log(wti))),
+    change_log_copper = c(NA, diff(log(copper))),
+    change_log_dollar = c(NA, diff(log(dollar))),
+    change_10Y = c(NA, diff(tenyear))
+  )
+
+#setting data to train model on
+training_data <- filter(p3, date >= as.Date("2011-06-01") & date <= as.Date("2014-06-01"))
+
+#regression
+model <- lm(change_log_oil ~ change_log_copper + change_log_dollar + change_10Y - 1, data = training_data)
+summary(model)
+
+#creating prediction data with sample frame
+out_of_sample_data <- filter(p3, date > as.Date("2014-06-01"))
+
+out_of_sample_data <- out_of_sample_data %>%
+  mutate(
+    predicted_change_log_oil = predict(model, newdata = .)
+  )
+
+out_of_sample_data <- out_of_sample_data %>%
+  mutate(
+    predicted_change_log_oil = predict(model, newdata = .),
+    predicted_demand_component = exp(cumsum(predicted_change_log_oil)) * last(training_data$wti)
+  )
+
+#graphing final
+ggplot() +
+  geom_line(data = p3, aes(x = date, y = wti, color = "WTI"), linetype = "solid") +
+  geom_line(data = out_of_sample_data, aes(x = date, y = predicted_demand_component, color = "Oil Demand Only"), linetype = "solid") +
+  scale_color_manual(values = c("WTI" = "darkblue", "Oil Demand Only" = "lightblue")) +
+  labs(title = "Figure 3: WTI Crude Estimated Demand Effect",
+       subtitle = "Dollars per Barrel",
+       caption = "Source: Bloomberg (WTI); author's calculations. Note: Demand component estimated by applying \nregression coefficients over 6/2011-6/2014 sample to subsequent copper, dollar, and ten-year data.") +
+  scale_y_continuous(limits = c(0, 120), breaks = seq(0, 120, by = 20)) +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b-%y", limits = c(as.Date("2011-06-01"), as.Date("2016-02-01"))) +
+  theme_minimal() +
+  theme(
+    plot.caption = element_text(size = 8, hjust = 0.5),
+    legend.title = element_blank(),
+    legend.position = c(0.5, 0.08), 
+    legend.direction = "horizontal", 
+    legend.background = element_blank(),
+    panel.grid.major.x = element_blank(), 
+    panel.grid.minor.x = element_blank(), 
+    axis.text.x = element_text(angle = 45, hjust = 1) 
+  )+
+  xlab (NULL) +
+  ylab (NULL)
+```
+
+
+
+
